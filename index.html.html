@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Daily Manifest</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body { background: #14171F; }
+  .manifest-num { font-family: 'IBM Plex Mono', monospace; }
+  .stamp-anim { animation: stampHit 0.42s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes stampHit {
+    0% { transform: scale(1.6) rotate(-14deg); opacity: 0; }
+    55% { transform: scale(0.92) rotate(3deg); opacity: 1; }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  }
+  .row-enter { animation: rowIn 0.25s ease-out; }
+  @keyframes rowIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .task-row:hover .del-btn { opacity: 1; }
+  .add-btn:hover { background: #F0C878 !important; }
+  input, textarea, button, select { font-family: inherit; }
+  @media (prefers-reduced-motion: reduce) {
+    .stamp-anim, .row-enter { animation: none !important; }
+  }
+  ::selection { background: #E2A63B; color: #14171F; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-type="module">
+const { useState, useMemo, useRef, useEffect } = React;
+
+const PRIORITIES = {
+  low: { label: "Low", color: "#6B7280" },
+  medium: { label: "Med", color: "#E2A63B" },
+  high: { label: "High", color: "#E2574C" },
+};
+
+function pad(n) { return String(n).padStart(3, "0"); }
+
+function todayLabel() {
+  return new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+}
+function timeNow() {
+  return new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+
+function CheckIcon({ className }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3FA790" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#14171F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E2574C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+    </svg>
+  );
+}
+function AlertIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E2574C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+function DailyManifest() {
+  const [tasks, setTasks] = useState([
+    { id: 1, text: "Draft quarterly review notes", priority: "high", done: false, loggedAt: "09:12" },
+    { id: 2, text: "Reply to vendor about invoice #4471", priority: "medium", done: false, loggedAt: "09:20" },
+    { id: 3, text: "Book dentist appointment", priority: "low", done: true, loggedAt: "08:47" },
+  ]);
+  const [nextId, setNextId] = useState(4);
+  const [input, setInput] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [filter, setFilter] = useState("all");
+  const [stampingId, setStampingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (editingId !== null) {
+      const el = document.getElementById(`edit-${editingId}`);
+      if (el) el.focus();
+    }
+  }, [editingId]);
+
+  const openCount = tasks.filter((t) => !t.done).length;
+  const doneCount = tasks.length - openCount;
+  const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+
+  const visible = useMemo(() => {
+    if (filter === "open") return tasks.filter((t) => !t.done);
+    if (filter === "cleared") return tasks.filter((t) => t.done);
+    return tasks;
+  }, [tasks, filter]);
+
+  function addTask(e) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setTasks((prev) => [...prev, { id: nextId, text, priority, done: false, loggedAt: timeNow() }]);
+    setNextId((n) => n + 1);
+    setInput("");
+    inputRef.current && inputRef.current.focus();
+  }
+
+  function toggleTask(id) {
+    setStampingId(id);
+    setTimeout(() => setStampingId(null), 420);
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  }
+
+  function deleteTask(id) {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function startEdit(t) {
+    setEditingId(t.id);
+    setEditText(t.text);
+  }
+
+  function commitEdit(id) {
+    const text = editText.trim();
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, text: text || t.text } : t)));
+    setEditingId(null);
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#14171F", fontFamily: "'Inter', sans-serif", color: "#E7E4DA", padding: "32px 16px", display: "flex", justifyContent: "center" }}>
+      <div style={{ width: "100%", maxWidth: 640 }}>
+        <div style={{ borderBottom: "1px solid #2C3242", paddingBottom: 20, marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+            <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 26, letterSpacing: "-0.01em", margin: 0, color: "#F3F1E8" }}>
+              Daily Manifest
+            </h1>
+            <span className="manifest-num" style={{ fontSize: 13, color: "#8A8F9E" }}>{todayLabel()}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 14 }}>
+            <span className="manifest-num" style={{ fontSize: 12, color: "#8A8F9E" }}>
+              <strong style={{ color: "#E2A63B", fontWeight: 500 }}>{pad(openCount)}</strong> OPEN &nbsp;·&nbsp;{" "}
+              <strong style={{ color: "#3FA790", fontWeight: 500 }}>{pad(doneCount)}</strong> CLEARED
+            </span>
+            <div style={{ flex: 1, height: 3, background: "#2C3242", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #3FA790, #E2A63B)", transition: "width 0.35s ease" }} />
+            </div>
+            <span className="manifest-num" style={{ fontSize: 12, color: "#8A8F9E", minWidth: 32, textAlign: "right" }}>{pct}%</span>
+          </div>
+        </div>
+
+        <form onSubmit={addTask} style={{ display: "flex", gap: 8, marginBottom: 22, flexWrap: "wrap" }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Log a new entry…"
+            style={{ flex: "1 1 220px", background: "#1D2230", border: "1px solid #2C3242", borderRadius: 8, padding: "11px 14px", color: "#E7E4DA", fontSize: 14, outline: "none" }}
+            onFocus={(e) => (e.target.style.borderColor = "#E2A63B")}
+            onBlur={(e) => (e.target.style.borderColor = "#2C3242")}
+          />
+          <select value={priority} onChange={(e) => setPriority(e.target.value)} style={{ background: "#1D2230", border: "1px solid #2C3242", borderRadius: 8, padding: "0 10px", color: "#E7E4DA", fontSize: 13, outline: "none" }}>
+            {Object.entries(PRIORITIES).map(([k, v]) => (
+              <option key={k} value={k}>{v.label} priority</option>
+            ))}
+          </select>
+          <button type="submit" className="add-btn" style={{ display: "flex", alignItems: "center", gap: 6, background: "#E2A63B", color: "#14171F", border: "none", borderRadius: 8, padding: "0 16px", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+            <PlusIcon /> Log
+          </button>
+        </form>
+
+        <div style={{ display: "flex", gap: 18, marginBottom: 14, borderBottom: "1px solid #2C3242" }}>
+          {[["all", "All"], ["open", "Open"], ["cleared", "Cleared"]].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              style={{ background: "none", border: "none", borderBottom: filter === key ? "2px solid #E2A63B" : "2px solid transparent", color: filter === key ? "#F3F1E8" : "#8A8F9E", fontSize: 13, fontWeight: 500, padding: "0 2px 10px", cursor: "pointer" }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div>
+          {visible.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#5A6070", fontSize: 13 }}>
+              {filter === "cleared" ? "Nothing cleared yet." : "The manifest is empty. Log something above."}
+            </div>
+          )}
+
+          {visible.map((t) => (
+            <div key={t.id} className="task-row row-enter" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", borderBottom: "1px solid #21273a" }}>
+              <span className="manifest-num" style={{ fontSize: 11, color: "#4A5163", width: 26, flexShrink: 0 }}>{pad(t.id)}</span>
+
+              <button
+                onClick={() => toggleTask(t.id)}
+                aria-label={t.done ? "Mark as open" : "Mark as cleared"}
+                style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, border: t.done ? "1px solid #3FA790" : "1px solid #4A5163", background: t.done ? "#3FA79022" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+              >
+                {t.done && <CheckIcon className={stampingId === t.id ? "stamp-anim" : ""} />}
+              </button>
+
+              {editingId === t.id ? (
+                <input
+                  id={`edit-${t.id}`}
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onBlur={() => commitEdit(t.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitEdit(t.id); if (e.key === "Escape") setEditingId(null); }}
+                  style={{ flex: 1, background: "#1D2230", border: "1px solid #E2A63B", borderRadius: 6, padding: "5px 8px", color: "#E7E4DA", fontSize: 14, outline: "none" }}
+                />
+              ) : (
+                <span onDoubleClick={() => startEdit(t)} style={{ flex: 1, fontSize: 14, color: t.done ? "#5A6070" : "#E7E4DA", textDecoration: t.done ? "line-through" : "none", cursor: "text" }} title="Double-click to edit">
+                  {t.text}
+                </span>
+              )}
+
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", color: PRIORITIES[t.priority].color, border: `1px solid ${PRIORITIES[t.priority].color}55`, borderRadius: 999, padding: "2px 8px", flexShrink: 0, textTransform: "uppercase" }}>
+                {PRIORITIES[t.priority].label}
+              </span>
+
+              <span className="manifest-num" style={{ fontSize: 11, color: "#5A6070", width: 44, textAlign: "right", flexShrink: 0 }}>{t.loggedAt}</span>
+
+              <button onClick={() => deleteTask(t.id)} className="del-btn" aria-label="Delete entry" style={{ opacity: 0, background: "none", border: "none", cursor: "pointer", padding: 4, transition: "opacity 0.15s ease", flexShrink: 0 }}>
+                <TrashIcon />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {tasks.some((t) => t.priority === "high" && !t.done) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 20, padding: "10px 12px", background: "#E2574C15", border: "1px solid #E2574C33", borderRadius: 8, fontSize: 12, color: "#E2A39D" }}>
+            <AlertIcon /> High-priority entries still open — clear these first.
+          </div>
+        )}
+
+        <p style={{ marginTop: 24, fontSize: 11, color: "#4A5163", textAlign: "center" }}>
+          Double-click an entry to edit · entries are kept for this browser session only
+        </p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<DailyManifest />);
+</script>
+</body>
+</html>
